@@ -1,11 +1,18 @@
+import java.awt.image.BufferedImage;
 import java.nio.file.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Main {
+    private static final AtomicBoolean isPaused = new AtomicBoolean(false);
+    private static final List<Path> foldersToWatch = new ArrayList<>();
+
     public static void main(String[] args) throws IOException, InterruptedException {
-        List<Path> foldersToWatch = new ArrayList<>();
+        SystemTrayLoader();
 
         foldersToWatch.add(Paths.get(System.getProperty("user.home"), "Downloads"));
         foldersToWatch.add(Paths.get(System.getProperty("user.home"), "Desktop"));
@@ -42,6 +49,14 @@ public class Main {
         //runs indefinitely
         while (true) {
             WatchKey key = watchdog.take();
+            if (isPaused.get()) {
+                System.out.println("Event detected but ignored (Paused)...");
+                // IMPORTANT: You must still poll events and reset the key, otherwise the OS buffer will fill up or the key stays invalid.
+                key.pollEvents();
+                boolean valid = key.reset();
+                if (!valid) break;
+                continue; // Skip the actual processing logic below
+            }
             Path currentDir = (Path) key.watchable();
             for (WatchEvent<?> event : key.pollEvents()) {
                 // FIX START: Check for the "Overflow" event
@@ -175,5 +190,90 @@ public class Main {
             }
         }
         return false;
+    }
+
+    private static void SystemTrayLoader() {
+        if (!SystemTray.isSupported()) {
+            System.err.println("System tray not supported!");
+            return;
+        }
+
+        // 2. Get the system tray instance
+        final SystemTray tray = SystemTray.getSystemTray();
+
+        Image image = GenerateImage();
+
+        // 4. Create a Popup Menu (Right-click menu)
+        PopupMenu popup = new PopupMenu();
+
+        MenuItem exitItem = new MenuItem("Exit");
+
+        // Add functionality to menu items
+        exitItem.addActionListener(e -> System.exit(0));
+
+        popup.add(exitItem);
+
+        // 5. Create the TrayIcon
+        TrayIcon trayIcon = new TrayIcon(image, "DownloadsWatchdog", popup);
+        trayIcon.setImageAutoSize(true);
+
+        // Add a listener for double-clicking the icon
+        trayIcon.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                boolean newState = !isPaused.get();
+                isPaused.set(newState);
+                trayIcon.displayMessage("DownloadsWatchDog!",
+                        newState ? "Service is paused." : "Service has been resumed.",
+                        TrayIcon.MessageType.INFO);
+                if(!isPaused.get()) {
+                    System.out.println("--- 🧹 Starting Cleanup ---");
+                    for (Path folder : foldersToWatch) {
+                        if (Files.exists(folder)) {
+                            System.out.println("Processing: " + folder);
+                            performInitialCleanup(folder);
+                        } else {
+                            System.out.println("⚠️ Warning: Folder not found: " + folder);
+                        }
+                    }
+                    System.out.println("--- ✅ Cleanup Complete ---");
+                }
+            }
+        });
+
+        // 6. Add the icon to the SystemTray
+        try {
+            tray.add(trayIcon);
+            System.out.println("Tray icon added.");
+        } catch (AWTException e) {
+            System.err.println("TrayIcon could not be added.");
+        }
+    }
+
+    // Helper method to generate a simple image just for this demo
+    private static java.awt.Image GenerateImage() {
+        int width = 16, height = 16;
+        BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        // 1. Draw the white of the eye (an oval)
+        g.setColor(Color.WHITE);
+        g.fillOval(1, 3, 14, 10);
+
+        // 2. Draw the outer outline (dark gray)
+        g.setColor(Color.DARK_GRAY);
+        g.setStroke(new java.awt.BasicStroke(1.5f));
+        g.drawOval(1, 3, 14, 10);
+
+        // 3. Draw the iris/pupil (blue circle in the middle)
+        g.setColor(new Color(0, 120, 215)); // A nice blue
+        g.fillOval(5, 5, 6, 6);
+
+        // 4. Optional: A tiny white reflection dot to make it look glossy
+        g.setColor(Color.WHITE);
+        g.fillOval(6, 6, 2, 2);
+
+        g.dispose();
+        return img;
     }
 }
