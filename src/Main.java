@@ -6,31 +6,42 @@ import java.util.List;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Logger;
 
 public class Main {
     private static final AtomicBoolean isPaused = new AtomicBoolean(false);
     private static final List<Path> foldersToWatch = new ArrayList<>();
+    private static final Logger LOGGER = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
 
     public static void main(String[] args) throws IOException, InterruptedException {
+        try {
+            WatchdogLogger.setup();
+        } catch (IOException e) {
+            System.out.println("System crash: " + e.getMessage());
+            throw new RuntimeException("Problems with creating the log files");
+        }
+        LOGGER.info("Application Started");
         SystemTrayLoader();
 
         foldersToWatch.add(Paths.get(System.getProperty("user.home"), "Downloads"));
         foldersToWatch.add(Paths.get(System.getProperty("user.home"), "Desktop"));
-        foldersToWatch.add(Paths.get("U:"));
-        foldersToWatch.add(Paths.get("O:"));
+        foldersToWatch.add(Paths.get("U:\\"));
+        foldersToWatch.add(Paths.get("O:\\"));
+        LOGGER.info("Folders/Drives to Watch added.");
 
         WatchService watchdog = FileSystems.getDefault().newWatchService();
-        System.out.println("--- 🧹 Starting Initial Cleanup & Registration ---");
+        LOGGER.info("--- 🧹 Starting Initial Cleanup & Registration ---");
         for (Path folder : foldersToWatch) {
             if (Files.exists(folder)) {
-                System.out.println("Processing: " + folder);
+                LOGGER.info("Processing: " + folder);
                 performInitialCleanup(folder);
                 folder.register(watchdog, StandardWatchEventKinds.ENTRY_CREATE);
             } else {
-                System.out.println("⚠️ Warning: Folder not found: " + folder);
+                LOGGER.warning("⚠️ Warning: Folder not found: " + folder);
             }
         }
-        System.out.println("--- ✅ Cleanup Complete ---");
+        LOGGER.info("--- ✅ Cleanup Complete ---");
+        LOGGER.info("--- 👀 Watchdog is watching " + foldersToWatch.size() + " folders ---");
         System.out.println("--- 👀 Watchdog is watching " + foldersToWatch.size() + " folders ---");
         startWatchDog(watchdog);
     }
@@ -41,7 +52,7 @@ public class Main {
                 processFile(file, folder, false);
             }
         } catch (IOException e) {
-            System.out.println("Error during cleanup: " + folder + ": " + e.getMessage());
+            LOGGER.severe("Error during cleanup: " + folder + ": " + e.getMessage());
         }
     }
 
@@ -50,7 +61,7 @@ public class Main {
         while (true) {
             WatchKey key = watchdog.take();
             if (isPaused.get()) {
-                System.out.println("Event detected but ignored (Paused)...");
+                LOGGER.info("Event detected but ignored (Paused)...");
                 // IMPORTANT: You must still poll events and reset the key, otherwise the OS buffer will fill up or the key stays invalid.
                 key.pollEvents();
                 boolean valid = key.reset();
@@ -90,9 +101,11 @@ public class Main {
             }
             if(requiresDelay) Thread.sleep(1000);
             Files.move(file, destination, StandardCopyOption.REPLACE_EXISTING);
+            LOGGER.info("✅ Moved " + file.getFileName() + " -> " + targetFolderName);
             System.out.println("✅ Moved " + file.getFileName() + " -> " + targetFolderName);
         } catch (Exception e) {
             System.out.println("❌ Failed to move file: " + file.getFileName());
+            LOGGER.warning("❌ Failed to move file: " + file.getFileName());
         }
     }
 
@@ -209,7 +222,10 @@ public class Main {
         MenuItem exitItem = new MenuItem("Exit");
 
         // Add functionality to menu items
-        exitItem.addActionListener(e -> System.exit(0));
+        exitItem.addActionListener(e -> {
+            LOGGER.info("Service has been stopped.");
+            System.exit(0);
+        });
 
         popup.add(exitItem);
 
@@ -217,35 +233,42 @@ public class Main {
         TrayIcon trayIcon = new TrayIcon(image, "DownloadsWatchdog", popup);
         trayIcon.setImageAutoSize(true);
 
-        // Add a listener for double-clicking the icon
-        trayIcon.addActionListener(new ActionListener() {
+        class CleanupHandler implements ActionListener {
+            @Override
             public void actionPerformed(ActionEvent e) {
                 boolean newState = !isPaused.get();
                 isPaused.set(newState);
+                LOGGER.info(newState ? "Service is paused." : "Service has been resumed.");
                 trayIcon.displayMessage("DownloadsWatchDog!",
                         newState ? "Service is paused." : "Service has been resumed.",
                         TrayIcon.MessageType.INFO);
                 if(!isPaused.get()) {
                     System.out.println("--- 🧹 Starting Cleanup ---");
+                    LOGGER.info("--- 🧹 Starting Cleanup ---");
                     for (Path folder : foldersToWatch) {
                         if (Files.exists(folder)) {
                             System.out.println("Processing: " + folder);
+                            LOGGER.info("Processing: " + folder);
                             performInitialCleanup(folder);
                         } else {
                             System.out.println("⚠️ Warning: Folder not found: " + folder);
+                            LOGGER.warning("⚠️ Warning: Folder not found: " + folder);
                         }
                     }
-                    System.out.println("--- ✅ Cleanup Complete ---");
+                    LOGGER.info("--- ✅ Cleanup Complete ---");
                 }
             }
-        });
+        };
+
+        // Add a listener for double-clicking the icon
+        trayIcon.addActionListener(new CleanupHandler());
 
         // 6. Add the icon to the SystemTray
         try {
             tray.add(trayIcon);
-            System.out.println("Tray icon added.");
+            LOGGER.info("Tray icon added.");
         } catch (AWTException e) {
-            System.err.println("TrayIcon could not be added.");
+            LOGGER.warning("TrayIcon could not be added.");
         }
     }
 

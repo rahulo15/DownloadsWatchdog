@@ -37,3 +37,6 @@ bin/
 ### OS ###
 .DS_Store
 Thumbs.db
+
+### LOG files ###
+watchdog.log.*
