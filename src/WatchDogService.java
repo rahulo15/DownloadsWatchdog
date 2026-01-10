@@ -2,10 +2,14 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class WatchDogService {
     private static final Logger LOGGER = Logger.getLogger(WatchDogService.class.getName());
     private final FileProcessor fileProcessor;
+    //adjust the number of threads
+    private final ExecutorService workerPool = Executors.newFixedThreadPool(10);
 
     public WatchDogService() {
         this.fileProcessor = new FileProcessor();
@@ -35,7 +39,11 @@ public class WatchDogService {
                     continue;
                 }
                 Path fullPath = currentDir.resolve(fileName);
-                fileProcessor.processFile(fullPath, currentDir, true);
+                // fileProcessor.processFile(fullPath, currentDir, true);
+                // multithreading
+                workerPool.submit(() -> {
+                    fileProcessor.processFile(fullPath, currentDir, true);
+                });
             }
             if (!key.reset()) break;
         }
@@ -44,7 +52,11 @@ public class WatchDogService {
     public void performInitialCleanup(Path folder) {
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(folder)) {
             for (Path file : stream) {
-                fileProcessor.processFile(file, folder, false);
+                // fileProcessor.processFile(file, folder, false);
+                // multithreading
+                workerPool.submit(() -> {
+                    fileProcessor.processFile(file, folder, true);
+                });
             }
         } catch (IOException e) {
             LOGGER.severe("Error during cleanup: " + folder + ": " + e.getMessage());

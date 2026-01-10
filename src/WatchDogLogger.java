@@ -1,5 +1,7 @@
 import java.io.IOException;
 import java.util.logging.*;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class WatchDogLogger {
     public WatchDogLogger() {}
@@ -19,8 +21,34 @@ public class WatchDogLogger {
         FileHandler fileTxt = new FileHandler("watchdog.log", 1024 * 1024, 10,true);
 
         // Create a simple formatter
-        SimpleFormatter formatterTxt = new SimpleFormatter();
-        fileTxt.setFormatter(formatterTxt);
+        // SimpleFormatter formatterTxt = new SimpleFormatter();
+        // fileTxt.setFormatter(formatterTxt);
+
+        //Complex formatter for multithreading
+        fileTxt.setFormatter(new Formatter() {
+            // Create a date format once
+            private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+            @Override
+            public String format(LogRecord record) {
+                // Get the current thread's name
+                String threadName = Thread.currentThread().getName();
+
+                // Get the log level (INFO, SEVERE, etc)
+                String level = record.getLevel().getLocalizedName();
+
+                // Get the actual message you typed
+                String message = formatMessage(record);
+
+                // Get the timestamp
+                String timestamp = dateFormat.format(new Date(record.getMillis()));
+
+                // Combine them into one neat line
+                // Format: [Time] [Thread] [Level]: Message (New Line)
+                return String.format("[%s] [%-20s] [%-10s]: %s%n",
+                        timestamp, threadName, level, message);
+            }
+        });
 
         // Add the handler to the logger
         rootLogger.addHandler(fileTxt);
